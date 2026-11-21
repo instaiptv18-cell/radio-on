@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel · Rádio on</title>
+<style>
+:root{--bg:#0b0f1a;--panel:#161e36;--panel2:#1d2848;--text:#f4f6fb;--muted:#98a4c3;--accent:#ff4d6d;--gold:#ffc15e;--ok:#3ddc84}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Roboto,"Segoe UI",system-ui,sans-serif;line-height:1.4}
+.wrap{max-width:900px;margin:0 auto;padding:16px 16px 120px}
+header{position:sticky;top:0;z-index:5;background:rgba(11,15,26,.95);backdrop-filter:blur(6px);border-bottom:1px solid rgba(255,255,255,.08)}
+header .wrap{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 16px}
+h1{font-size:20px;margin:0;margin-right:auto}
+h2{font-size:17px;margin:26px 0 10px;display:flex;align-items:center;gap:8px}
+.badge{background:var(--panel2);color:var(--muted);font-size:13px;padding:2px 10px;border-radius:99px}
+button{font:inherit;font-size:14px;border:0;border-radius:10px;padding:9px 14px;background:var(--panel2);color:var(--text);cursor:pointer}
+button:hover{filter:brightness(1.2)}
+button.primary{background:var(--accent);font-weight:600}
+button.gold{background:var(--gold);color:#1b1500;font-weight:600}
+button.danger{color:#ff8fa3}
+section.box,details.box{background:var(--panel);border-radius:14px;padding:14px;margin-bottom:12px}
+label{display:block;font-size:12px;color:var(--muted);font-weight:600}
+input{width:100%;margin-top:4px;padding:10px 11px;border-radius:9px;border:1px solid rgba(255,255,255,.12);background:#0e1427;color:var(--text);font:inherit;font-size:15px}
+input:focus{outline:2px solid var(--gold);border-color:transparent}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.wide{grid-column:1/-1}
+.rcard{display:grid;grid-template-columns:72px 1fr;gap:12px;background:var(--panel);border-radius:14px;padding:12px;margin-bottom:12px}
+.rcard.invalid{outline:2px solid var(--accent)}
+.thumb{position:relative;width:72px;height:72px;border-radius:12px;background:#0e1427;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;color:var(--gold);overflow:hidden}
+.thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#0e1427;display:none}
+.acts{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px}
+.acts .sp{margin-left:auto}
+.hint{color:var(--muted);font-size:13px;margin:6px 0 0}
+details summary{cursor:pointer;font-weight:600}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#232f55;padding:12px 18px;border-radius:12px;max-width:92vw;box-shadow:0 8px 30px rgba(0,0,0,.5);display:none;z-index:10}
+#toast.err{background:#5a1a2b}
+#toast.ok{background:#14452c}
+@media(max-width:560px){.grid2{grid-template-columns:1fr}.rcard{grid-template-columns:1fr}.thumb{width:56px;height:56px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>Painel · Rádio on</h1>
+    <button id="btnDownload">Baixar config.json</button>
+    <button id="btnSave" class="primary">Salvar no GitHub</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <p class="hint">Mude o que quiser e aperte <b>Salvar no GitHub</b>. O app do celular e o da TV passam a mostrar a nova lista na próxima vez que forem abertos (o GitHub pode levar 1 ou 2 minutos para atualizar).</p>
+
+  <h2>Dados do app</h2>
+  <section class="box">
+    <div class="grid2">
+      <label>Nome do app<input id="appName" placeholder="Rádio on"></label>
+      <label>Frase embaixo do nome<input id="subtitle" placeholder="Ao vivo, onde você estiver"></label>
+      <label class="wide">Link do logo do app (opcional)<input id="appLogo" placeholder="https://..."></label>
+    </div>
+  </section>
+
+  <h2>Rádios <span class="badge" id="count">0</span></h2>
+  <div id="radios"></div>
+  <button id="btnAdd" class="gold">+ Adicionar rádio</button>
+
+  <h2>Conexão com o GitHub</h2>
+  <details class="box" id="gh">
+    <summary>Configurar (só precisa fazer uma vez)</summary>
+    <div class="grid2" style="margin-top:12px">
+      <label>Usuário do GitHub<input id="ghOwner"></label>
+      <label>Repositório<input id="ghRepo"></label>
+      <label>Branch<input id="ghBranch"></label>
+      <label>Arquivo<input id="ghPath"></label>
+      <label class="wide">Token de acesso<input id="ghToken" type="password" placeholder="github_pat_..." autocomplete="off"></label>
+    </div>
+    <p class="hint">Como criar o token: GitHub → foto do perfil → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token. Escolha só o repositório da rádio e, em Permissions, <b>Contents: Read and write</b>. O token fica guardado só neste navegador; não o mostre a ninguém.</p>
+    <p class="hint">Se preferir não usar token: aperte <b>Baixar config.json</b> e, no GitHub, abra o repositório → Add file → Upload files, e envie o arquivo (ele substitui o antigo).</p>
+  </details>
+</div>
+<div id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (s) { return document.querySelector(s); };
+  var cfg = { appName: 'Rádio on', appLogo: '', subtitle: '', radios: [] };
+
+  /* ---------- GitHub: valores iniciais ---------- */
+  function ghDefaults() {
+    var owner = 'instaiptv18-cell', repo = 'Appradio';
+    if (/\.github\.io$/.test(location.hostname)) {
+      owner = location.hostname.split('.')[0];
+      var p = location.pathname.split('/')[1];
+      if (p && !/\.html?$/i.test(p)) repo = p;
+    }
+    return { owner: owner, repo: repo, branch: 'main', path: 'config.json', token: '' };
+  }
+  function ghLoad() {
+    var d = ghDefaults(), s = {};
+    try { s = JSON.parse(localStorage.getItem('radioon.gh') || '{}'); } catch (e) {}
+    return Object.assign(d, s);
+  }
+  function ghRead() {
+    return {
+      owner: $('#ghOwner').value.trim(), repo: $('#ghRepo').value.trim(),
+      branch: $('#ghBranch').value.trim() || 'main', path: $('#ghPath').value.trim() || 'config.json',
+      token: $('#ghToken').value.trim()
+    };
+  }
+  function ghFill() {
+    var g = ghLoad();
+    $('#ghOwner').value = g.owner; $('#ghRepo').value = g.repo; $('#ghBranch').value = g.branch;
+    $('#ghPath').value = g.path; $('#ghToken').value = g.token;
+  }
+  ['#ghOwner', '#ghRepo', '#ghBranch', '#ghPath', '#ghToken'].forEach(function (id) {
+    $(id).addEventListener('change', function () {
+      try { localStorage.setItem('radioon.gh', JSON.stringify(ghRead())); } catch (e) {}
+    });
+  });
+
+  /* ---------- avisos ---------- */
+  var toastTimer;
+  function toast(text, kind) {
+    var t = $('#toast');
+    t.textContent = text; t.className = kind || ''; t.style.display = 'block';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.style.display = 'none'; }, kind === 'err' ? 7000 : 4000);
+  }
+
+  /* ---------- carregar ---------- */
+  function load() {
+    var g = ghLoad();
+    var urls = ['config.json',
+      'https://raw.githubusercontent.com/' + g.owner + '/' + g.repo + '/' + g.branch + '/' + g.path];
+    var i = 0;
+    function next() {
+      if (i >= urls.length) return Promise.reject();
+      var u = urls[i++];
+      return fetch(u + '?t=' + Date.now(), { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+        .catch(next);
+    }
+    next().then(function (data) {
+      cfg = Object.assign({ appName: '', appLogo: '', subtitle: '', radios: [] }, data);
+      if (!Array.isArray(cfg.radios)) cfg.radios = [];
+      fillApp(); renderRadios();
+    }).catch(function () {
+      fillApp(); renderRadios();
+      toast('Não consegui abrir o config.json atual. Se salvar agora, a lista será substituída.', 'err');
+    });
+  }
+
+  function fillApp() {
+    $('#appName').value = cfg.appName || '';
+    $('#subtitle').value = cfg.subtitle || '';
+    $('#appLogo').value = cfg.appLogo || '';
+  }
+  [['#appName', 'appName'], ['#subtitle', 'subtitle'], ['#appLogo', 'appLogo']].forEach(function (p) {
+    $(p[0]).addEventListener('input', function () { cfg[p[1]] = this.value; });
+  });
+
+  /* ---------- lista de rádios ---------- */
+  var testAudio = new Audio(), testBtn = null;
+  function resetTest() {
+    testAudio.pause(); testAudio.removeAttribute('src'); testAudio.load();
+    if (testBtn) testBtn.textContent = '▶ Testar';
+    testBtn = null;
+  }
+  testAudio.addEventListener('playing', function () { if (testBtn) testBtn.textContent = '■ Parar (tocando)'; });
+  testAudio.addEventListener('error', function () {
+    if (testBtn && testAudio.getAttribute('src')) {
+      testBtn.textContent = '✕ Não tocou';
+      toast('Esta rádio não tocou aqui. Links que começam com http:// podem ser bloqueados nesta página, mas funcionar no app.', 'err');
+    }
+  });
+
+  function setThumb(box, r) {
+    var img = box.querySelector('img'), s = box.querySelector('span');
+    s.textContent = (r.nome || '?').trim().charAt(0).toUpperCase() || '?';
+    if (r.logo) {
+      img.style.display = 'block';
+      img.onerror = function () { img.style.display = 'none'; };
+      img.src = r.logo;
+    } else { img.style.display = 'none'; }
+  }
+
+  function renderRadios() {
+    resetTest();
+    var box = $('#radios');
+    box.textContent = '';
+    $('#count').textContent = cfg.radios.length;
+    cfg.radios.forEach(function (r, i) {
+      var el = document.createElement('article');
+      el.className = 'rcard';
+      el.innerHTML =
+        '<div class="thumb"><span></span><img alt="" referrerpolicy="no-referrer"></div>' +
+        '<div class="grid2">' +
+          '<label>Nome<input data-k="nome" placeholder="Ex.: Liga FM 95.1"></label>' +
+          '<label>Cidade<input data-k="cidade" placeholder="Ex.: (MANAUS)"></label>' +
+          '<label class="wide">Link do logo<input data-k="logo" placeholder="https://..."></label>' +
+          '<label class="wide">Link da rádio (stream)<input data-k="url" placeholder="https://..."></label>' +
+        '</div>' +
+        '<div class="acts">' +
+          '<button data-a="up">▲ Subir</button><button data-a="down">▼ Descer</button>' +
+          '<button data-a="test">▶ Testar</button>' +
+          '<button data-a="del" class="danger sp">Remover</button>' +
+        '</div>';
+      var thumb = el.querySelector('.thumb');
+      Array.prototype.forEach.call(el.querySelectorAll('input'), function (inp) {
+        var k = inp.getAttribute('data-k');
+        inp.value = r[k] || '';
+        inp.addEventListener('input', function () {
+          r[k] = inp.value;
+          el.classList.remove('invalid');
+          if (k === 'logo' || k === 'nome') setThumb(thumb, r);
+        });
+      });
+      setThumb(thumb, r);
+      Array.prototype.forEach.call(el.querySelectorAll('button'), function (b) {
+        b.addEventListener('click', function () {
+          var a = b.getAttribute('data-a');
+          if (a === 'up' && i > 0) { swap(i, i - 1); }
+          else if (a === 'down' && i < cfg.radios.length - 1) { swap(i, i + 1); }
+          else if (a === 'del') {
+            if (confirm('Remover "' + (r.nome || 'esta rádio') + '" da lista?')) { cfg.radios.splice(i, 1); renderRadios(); }
+          } else if (a === 'test') {
+            if (testBtn === b) { resetTest(); return; }
+            resetTest();
+            var u = (r.url || '').trim();
+            if (!u) { toast('Preencha o link da rádio primeiro.', 'err'); return; }
+            testBtn = b; b.textContent = 'Conectando…';
+            testAudio.src = u;
+            var p = testAudio.play();
+            if (p && p.catch) p.catch(function () {});
+          }
+        });
+      });
+      box.appendChild(el);
+    });
+  }
+  function swap(a, b) {
+    var t = cfg.radios[a]; cfg.radios[a] = cfg.radios[b]; cfg.radios[b] = t;
+    renderRadios();
+  }
+
+  $('#btnAdd').addEventListener('click', function () {
+    cfg.radios.push({ nome: '', cidade: '', logo: '', url: '' });
+    renderRadios();
+    var cards = document.querySelectorAll('.rcard');
+    var last = cards[cards.length - 1];
+    last.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    last.querySelector('input').focus({ preventScroll: true });
+  });
+
+  /* ---------- salvar ---------- */
+  function buildOutput() {
+    var radios = cfg.radios.map(function (r) {
+      return Object.assign({}, r, {
+        nome: (r.nome || '').trim(), cidade: (r.cidade || '').trim(),
+        logo: (r.logo || '').trim(), url: (r.url || '').trim()
+      });
+    });
+    var bad = -1;
+    radios.forEach(function (r, i) {
+      if (bad < 0 && (!r.nome || !/^https?:\/\//i.test(r.url))) bad = i;
+    });
+    return { out: Object.assign({}, cfg, { radios: radios }), bad: bad };
+  }
+  function checked() {
+    var res = buildOutput();
+    if (res.bad >= 0) {
+      var el = document.querySelectorAll('.rcard')[res.bad];
+      if (el) { el.classList.add('invalid'); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+      toast('Rádio nº ' + (res.bad + 1) + ': preencha o nome e um link que comece com http:// ou https://', 'err');
+      return null;
+    }
+    return JSON.stringify(res.out, null, 2) + '\n';
+  }
+
+  $('#btnDownload').addEventListener('click', function () {
+    var json = checked(); if (!json) return;
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    a.download = 'config.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    toast('config.json baixado. Envie ele para o seu repositório no GitHub.', 'ok');
+  });
+
+  function b64(str) { return btoa(unescape(encodeURIComponent(str))); }
+
+  $('#btnSave').addEventListener('click', function () {
+    var json = checked(); if (!json) return;
+    var g = ghRead();
+    try { localStorage.setItem('radioon.gh', JSON.stringify(g)); } catch (e) {}
+    if (!g.owner || !g.repo || !g.token) {
+      $('#gh').open = true;
+      $('#gh').scrollIntoView({ block: 'center', behavior: 'smooth' });
+      toast('Preencha usuário, repositório e token na seção "Conexão com o GitHub".', 'err');
+      return;
+    }
+    var btn = $('#btnSave'); btn.disabled = true; btn.textContent = 'Salvando…';
+    var api = 'https://api.github.com/repos/' + encodeURIComponent(g.owner) + '/' + encodeURIComponent(g.repo) +
+      '/contents/' + g.path.split('/').map(encodeURIComponent).join('/');
+    var headers = { Authorization: 'Bearer ' + g.token, Accept: 'application/vnd.github+json' };
+
+    fetch(api + '?ref=' + encodeURIComponent(g.branch), { headers: headers, cache: 'no-store' })
+      .then(function (r) {
+        if (r.status === 404) return null;
+        if (!r.ok) throw new Error('Não consegui ler o arquivo (erro ' + r.status + '). Confira usuário, repositório, branch e token.');
+        return r.json();
+      })
+      .then(function (info) {
+        var body = { message: 'Atualiza rádios pelo painel', content: b64(json), branch: g.branch };
+        if (info && info.sha) body.sha = info.sha;
+        return fetch(api, {
+          method: 'PUT',
+          headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+          body: JSON.stringify(body)
+        });
+      })
+      .then(function (r) {
+        if (!r.ok) throw new Error('O GitHub recusou salvar (erro ' + r.status + '). O token precisa da permissão Contents: Read and write.');
+        toast('Salvo! Em 1 ou 2 minutos o app já mostra a nova lista.', 'ok');
+      })
+      .catch(function (e) { toast(e.message || 'Não foi possível salvar.', 'err'); })
+      .then(function () { btn.disabled = false; btn.textContent = 'Salvar no GitHub'; });
+  });
+
+  ghFill();
+  load();
+})();
+</script>
+</body>
+</html>
