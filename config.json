@@ -16,6 +16,12 @@
       "url": "https://play.wisestream.io/ligaitacoatiara"
     },
     {
+      "nome": "Liga Fm Parintins 97.1",
+      "cidade": "PARINTINS AM",
+      "logo": "https://cadena-high-volume.b-cdn.net/pgv4h7o6zn0dx4scqsi5piyo5tvj",
+      "url": "https://play.wisestream.io/ligaparintins"
+    },
+    {
       "nome": "Boas Novas 92.9 FM",
       "cidade": "(ITAPIRANGA AM)",
       "logo": "https://img.radios.com.br/radio/lg/radio32668_1756739204.jpg",
@@ -86,12 +92,6 @@
       "cidade": "BOA VISTA /RR",
       "logo": "https://93fmrr.com.br/wp-content/uploads/2020/07/logo-93fmRR-512px.png",
       "url": "https://5a2b083e9f360.streamlock.net/93fmrr/93fmrr.stream/chunklist_w1858520211.m3u8"
-    },
-    {
-      "nome": "Liga Fm Parintins 97.1",
-      "cidade": "PARINTINS AM",
-      "logo": "https://cadena-high-volume.b-cdn.net/pgv4h7o6zn0dx4scqsi5piyo5tvj",
-      "url": "https://play.wisestream.io/ligaparintins"
     }
   ]
 }
