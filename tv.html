@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rádio on</title>
+<style>
+:root{--bg:#0b0f1a;--panel:#161e36;--text:#f4f6fb;--muted:#98a4c3;--accent:#ff4d6d;--gold:#ffc15e}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+/* 1rem = 1/60 da largura da tela: o layout escala sozinho em qualquer TV */
+html{font-size:calc(100vw/60)}
+body{height:100vh;overflow:hidden;background:radial-gradient(120% 90% at 20% 0%,#1d2a55 0%,var(--bg) 60%);color:var(--text);font-family:Roboto,"Segoe UI",system-ui,sans-serif}
+#app{display:flex;flex-direction:column;height:100vh;padding:2.2rem 3rem 0}
+header{display:flex;align-items:center;gap:1rem;flex:none;margin-bottom:.6rem}
+#appLogo{height:3rem;border-radius:.6rem;display:none}
+h1{font-size:2.2rem;letter-spacing:.02em}
+#subtitle{color:var(--muted);font-size:1.1rem;margin-top:.15rem}
+main{flex:1;overflow-y:auto;padding:1.2rem .8rem 2rem;margin:0 -.8rem;scrollbar-width:none}
+main::-webkit-scrollbar{display:none}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(9.5rem,1fr));gap:1.2rem}
+.card{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;gap:.35rem;padding:1rem .7rem .9rem;border:0;border-radius:1.1rem;background:var(--panel);color:inherit;font:inherit;cursor:pointer;transition:transform .15s,box-shadow .15s,background .15s}
+.card:focus{outline:none;transform:scale(1.07);background:#212c52;box-shadow:0 0 0 .2rem var(--gold),0 1rem 2rem rgba(0,0,0,.55)}
+.card.sel{background:#2b2144}
+.logo{width:5.2rem;height:5.2rem;border-radius:1rem;background:#0e1427;display:flex;align-items:center;justify-content:center;font-size:1.8rem;font-weight:700;color:var(--gold);overflow:hidden}
+.logo img{width:100%;height:100%;object-fit:contain}
+.name{font-size:1.05rem;font-weight:600;line-height:1.2}
+.city{font-size:.85rem;color:var(--muted)}
+.eq{position:absolute;top:.7rem;right:.8rem;display:none;gap:.18rem;align-items:flex-end;height:1rem}
+.card.live .eq{display:flex}
+.eq i{width:.2rem;height:30%;background:var(--accent);animation:eq .9s ease-in-out infinite}
+.eq i:nth-child(2){animation-delay:.2s}
+.eq i:nth-child(3){animation-delay:.4s}
+@keyframes eq{0%,100%{height:25%}50%{height:100%}}
+#msg{display:none;flex-direction:column;align-items:center;justify-content:center;gap:1.2rem;height:100%;text-align:center;font-size:1.4rem;color:var(--muted)}
+#msg button{font:inherit;font-size:1.2rem;padding:.7rem 2rem;border:0;border-radius:.9rem;background:var(--panel);color:var(--text);cursor:pointer}
+#msg button:focus{outline:none;box-shadow:0 0 0 .2rem var(--gold);background:#212c52}
+#bar{flex:none;display:flex;align-items:center;gap:1.1rem;margin:0 -3rem;padding:1rem 3rem 1.3rem;background:rgba(8,11,22,.92);border-top:1px solid rgba(255,255,255,.08)}
+#npLogo{flex:none;width:3.2rem;height:3.2rem;border-radius:.7rem;background:#0e1427;display:flex;align-items:center;justify-content:center;font-size:1.3rem;font-weight:700;color:var(--gold);overflow:hidden}
+#npLogo img{width:100%;height:100%;object-fit:contain}
+#npName{font-size:1.3rem;font-weight:700}
+#npStatus{display:flex;align-items:center;gap:.5rem;font-size:1rem;color:var(--muted);margin-top:.15rem}
+.dot{width:.65rem;height:.65rem;border-radius:50%;background:var(--muted)}
+#bar[data-state=live] .dot{background:#3ddc84}
+#bar[data-state=loading] .dot{background:var(--gold)}
+#bar[data-state=error] .dot{background:var(--accent)}
+#hint{margin-left:auto;color:var(--muted);font-size:.9rem;text-align:right}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <img id="appLogo" alt="">
+    <div>
+      <h1 id="appName">Rádio on</h1>
+      <div id="subtitle"></div>
+    </div>
+  </header>
+  <main id="main">
+    <div id="msg"></div>
+    <div id="grid"></div>
+  </main>
+  <footer id="bar" data-state="idle">
+    <div id="npLogo">♪</div>
+    <div>
+      <div id="npName">Escolha uma rádio</div>
+      <div id="npStatus"><span class="dot"></span><span id="npText">Use as setas e aperte OK para ouvir</span></div>
+    </div>
+    <div id="hint">Setas: escolher · OK: ouvir ou pausar</div>
+  </footer>
+</div>
+<audio id="audio" preload="none"></audio>
+
+<script>
+(function () {
+  'use strict';
+
+  // De onde a lista de rádios é lida (o primeiro que funcionar vale)
+  var CONFIG_URLS = [
+    'config.json',
+    'https://raw.githubusercontent.com/instaiptv18-cell/Appradio/main/config.json',
+    'https://raw.githubusercontent.com/instaiptv18-cell/Appradio/master/config.json'
+  ];
+
+  var $ = function (s) { return document.querySelector(s); };
+  var audio = $('#audio'), grid = $('#grid'), msgBox = $('#msg'), bar = $('#bar');
+  var radios = [], current = -1, active = false, state = 'idle';
+  var retries = 0, retryTimer = null;
+
+  function cleanCity(c) { return String(c || '').replace(/^\s*\(|\)\s*$/g, '').trim(); }
+  function initials(n) {
+    var t = String(n || '').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0); }).join('');
+    return t.toUpperCase() || '♪';
+  }
+  function setLogo(box, r) {
+    box.textContent = '';
+    if (r.logo) {
+      var img = new Image();
+      img.alt = '';
+      img.referrerPolicy = 'no-referrer';
+      img.onerror = function () { box.textContent = initials(r.nome); };
+      img.src = r.logo;
+      box.appendChild(img);
+    } else {
+      box.textContent = initials(r.nome);
+    }
+  }
+
+  /* ---------- carregar a lista ---------- */
+  function loadConfig() {
+    var i = 0;
+    function next() {
+      if (i >= CONFIG_URLS.length) return Promise.reject(new Error('config'));
+      var u = CONFIG_URLS[i++];
+      return fetch(u + (u.indexOf('?') > -1 ? '&' : '?') + 't=' + Date.now(), { cache: 'no-store' })
+        .then(function (res) { if (!res.ok) throw new Error('http'); return res.json(); })
+        .catch(next);
+    }
+    return next();
+  }
+
+  function showMsg(text, withRetry) {
+    grid.style.display = 'none';
+    msgBox.style.display = 'flex';
+    msgBox.textContent = '';
+    var p = document.createElement('div');
+    p.textContent = text;
+    msgBox.appendChild(p);
+    if (withRetry) {
+      var b = document.createElement('button');
+      b.id = 'retry'; b.type = 'button'; b.textContent = 'Tentar de novo';
+      b.addEventListener('click', boot);
+      msgBox.appendChild(b);
+      b.focus();
+    }
+  }
+
+  function applyConfig(cfg) {
+    $('#appName').textContent = cfg.appName || 'Rádio on';
+    $('#subtitle').textContent = cfg.subtitle || '';
+    document.title = cfg.appName || 'Rádio on';
+    var logo = $('#appLogo');
+    if (cfg.appLogo) { logo.src = cfg.appLogo; logo.style.display = 'block'; logo.onerror = function () { logo.style.display = 'none'; }; }
+    else logo.style.display = 'none';
+
+    radios = (cfg.radios || []).filter(function (r) { return r && r.nome && r.url; });
+    if (!radios.length) { showMsg('Nenhuma rádio cadastrada. Adicione pelo painel (admin.html).', false); return; }
+    msgBox.style.display = 'none';
+    grid.style.display = 'grid';
+    render();
+
+    var last = '';
+    try { last = localStorage.getItem('radioon.last') || ''; } catch (e) {}
+    var idx = 0;
+    radios.forEach(function (r, i) { if (r.url === last) idx = i; });
+    var el = grid.children[idx];
+    if (el) el.focus({ preventScroll: true });
+    if (el) { try { el.scrollIntoView({ block: 'center' }); } catch (e) {} }
+  }
+
+  function boot() {
+    showMsg('Carregando rádios…', false);
+    loadConfig().then(applyConfig).catch(function () {
+      showMsg('Não consegui carregar a lista de rádios. Verifique a internet.', true);
+    });
+  }
+
+  /* ---------- tela ---------- */
+  function render() {
+    grid.textContent = '';
+    radios.forEach(function (r, i) {
+      var b = document.createElement('button');
+      b.className = 'card'; b.type = 'button'; b.dataset.i = i;
+      var logo = document.createElement('span'); logo.className = 'logo'; setLogo(logo, r);
+      var name = document.createElement('span'); name.className = 'name'; name.textContent = r.nome;
+      var city = document.createElement('span'); city.className = 'city'; city.textContent = cleanCity(r.cidade);
+      var eq = document.createElement('span'); eq.className = 'eq';
+      eq.innerHTML = '<i></i><i></i><i></i>';
+      b.appendChild(logo); b.appendChild(name); b.appendChild(city); b.appendChild(eq);
+      b.addEventListener('click', function () {
+        if (i === current && active) stop(); else play(i);
+      });
+      grid.appendChild(b);
+    });
+    mark();
+  }
+
+  function mark() {
+    Array.prototype.forEach.call(grid.children, function (el, i) {
+      el.classList.toggle('sel', active && i === current);
+      el.classList.toggle('live', active && i === current && state === 'live');
+    });
+  }
+
+  function setState(s, text) {
+    state = s;
+    bar.setAttribute('data-state', s);
+    $('#npText').textContent = text;
+    mark();
+  }
+
+  function setNow(r) {
+    $('#npName').textContent = r.nome + (cleanCity(r.cidade) ? ' · ' + cleanCity(r.cidade) : '');
+    setLogo($('#npLogo'), r);
+  }
+
+  /* ---------- tocar ---------- */
+  function play(i, isRetry) {
+    var r = radios[i];
+    if (!r || !r.url) return;
+    if (!isRetry) retries = 0;
+    clearTimeout(retryTimer);
+    current = i; active = true;
+    audio.src = r.url;
+    setNow(r);
+    setState('loading', 'Conectando…');
+    try { localStorage.setItem('radioon.last', r.url); } catch (e) {}
+    var p = audio.play();
+    if (p && p.catch) p.catch(function (e) {
+      if (!active || current !== i || (e && e.name === 'AbortError')) return;
+      scheduleRetry();
+    });
+  }
+
+  function stop() {
+    active = false;
+    clearTimeout(retryTimer);
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    setState('idle', 'Pausado · aperte OK para voltar a ouvir');
+  }
+
+  function scheduleRetry() {
+    if (!active || current < 0) return;
+    clearTimeout(retryTimer);
+    if (retries >= 3) { setState('error', 'Esta rádio não respondeu. Escolha outra.'); return; }
+    retries++;
+    setState('loading', 'Reconectando…');
+    var i = current;
+    retryTimer = setTimeout(function () { if (active && current === i) play(i, true); }, 3000);
+  }
+
+  audio.addEventListener('playing', function () { if (active) { retries = 0; setState('live', 'Ao vivo'); } });
+  audio.addEventListener('waiting', function () { if (active) setState('loading', 'Carregando…'); });
+  audio.addEventListener('error', function () { if (active) scheduleRetry(); });
+  audio.addEventListener('ended', function () { if (active) scheduleRetry(); });
+
+  function focusedIndex() {
+    var a = document.activeElement;
+    return a && a.dataset && a.dataset.i != null ? +a.dataset.i : -1;
+  }
+  function toggle() {
+    if (!radios.length) return;
+    if (active) stop();
+    else if (current >= 0) play(current);
+    else play(focusedIndex() >= 0 ? focusedIndex() : 0);
+  }
+  // O app Android chama estas funções quando você aperta play/pause no controle
+  window.radioToggle = toggle;
+  window.radioPlay = function () { if (!active) toggle(); };
+  window.radioPause = function () { if (active) stop(); };
+
+  /* ---------- controle remoto ---------- */
+  function focusCard(el) {
+    el.focus({ preventScroll: true });
+    try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { el.scrollIntoView(); }
+  }
+
+  function move(dir) {
+    var list = Array.prototype.slice.call(grid.children);
+    if (!list.length) return;
+    var cur = document.activeElement, idx = list.indexOf(cur);
+    if (idx < 0) { focusCard(list[0]); return; }
+    var r = cur.getBoundingClientRect();
+    var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    var best = null, bs = Infinity;
+    list.forEach(function (el) {
+      if (el === cur) return;
+      var b = el.getBoundingClientRect();
+      var dx = b.left + b.width / 2 - cx, dy = b.top + b.height / 2 - cy, p, s;
+      if (dir === 'right') { if (dx < r.width * 0.5) return; p = dx; s = Math.abs(dy); }
+      else if (dir === 'left') { if (dx > -r.width * 0.5) return; p = -dx; s = Math.abs(dy); }
+      else if (dir === 'down') { if (dy < r.height * 0.5) return; p = dy; s = Math.abs(dx); }
+      else { if (dy > -r.height * 0.5) return; p = -dy; s = Math.abs(dx); }
+      var sc = p + s * 3;
+      if (sc < bs) { bs = sc; best = el; }
+    });
+    if (!best) {
+      if (dir === 'right') best = list[idx + 1];
+      else if (dir === 'left') best = list[idx - 1];
+    }
+    if (best) focusCard(best);
+  }
+
+  document.addEventListener('keydown', function (e) {
+    var k = e.key, c = e.keyCode, dir = null;
+    if (k === 'ArrowRight' || c === 39) dir = 'right';
+    else if (k === 'ArrowLeft' || c === 37) dir = 'left';
+    else if (k === 'ArrowDown' || c === 40) dir = 'down';
+    else if (k === 'ArrowUp' || c === 38) dir = 'up';
+    if (dir) { e.preventDefault(); move(dir); return; }
+
+    if (k === 'Enter' || c === 13 || c === 23) {
+      var el = document.activeElement;
+      if (el && (el.classList.contains('card') || el.id === 'retry')) { e.preventDefault(); el.click(); }
+      return;
+    }
+    if (k === 'MediaPlayPause' || c === 179 || c === 85) { e.preventDefault(); toggle(); }
+    else if (k === 'MediaPlay' || c === 126) { e.preventDefault(); window.radioPlay(); }
+    else if (k === 'MediaPause' || k === 'MediaStop' || c === 127) { e.preventDefault(); window.radioPause(); }
+  });
+
+  boot();
+})();
+</script>
+</body>
+</html>
